@@ -1,0 +1,29 @@
+# Arquivos gerados pelo script
+resultados/
+logs/
+raw_data*.csv
+
+# Arquivos de ambiente Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Arquivos de distribuição/empacotamento
+dist/
+build/
+*.egg-info/
+
+# Arquivos temporários do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
