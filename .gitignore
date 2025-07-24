@@ -17,7 +17,48 @@ ENV/
 dist/
 build/
 *.egg-info/
+# Resultados e logs
+resultados/
+logs/
+dados_treinamento/
 
+# Arquivos Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Arquivos de ambiente
+.env
+.venv
+venv/
+ENV/
+
+# IDEs e editores
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
 # Arquivos temporários do sistema
 .DS_Store
 Thumbs.db
