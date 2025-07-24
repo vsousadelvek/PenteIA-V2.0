@@ -91,7 +91,55 @@ def substituir_parametro(parsed_url, parametros, param_name, payload):
 
     return nova_url
 
-def testar_payload(url, param_name, tipo_payload, payload, config):
+
+def analisar_resposta(resposta, payload, tipo_payload):
+    """Analisa a resposta para detectar sinais de sucesso na exploração"""
+    indicadores = {
+        'sqli': [
+            'mysql', 'sql syntax', 'você tem um erro', 'sql error', 'error in your sql',
+            'mysql_fetch', 'num_rows', 'ORA-', 'unexpected', 'line 1', 'syntax error',
+            'mysql_num_rows'
+        ],
+        'xss': [
+            '<script>', 'alert(', 'onerror=', 'onload=', 'javascript:alert', 
+            'document.cookie', 'document.domain', 'onmouseover'
+        ],
+        'csrf': [
+            'password changed', 'senha alterada', 'action=', 'form submitted',
+            'form action', 'successfully', 'csrf token'
+        ]
+    }
+
+    texto_resposta = resposta.text.lower()
+    resultado = {'sucesso': False, 'indicadores': []}
+
+    # Verifica indicadores específicos do tipo de payload
+    for indicador in indicadores.get(tipo_payload, []):
+        if indicador.lower() in texto_resposta:
+            resultado['sucesso'] = True
+            resultado['indicadores'].append(indicador)
+
+    # Verifica se o payload foi refletido na resposta (potencial XSS)
+    if tipo_payload == 'xss' and payload.lower() in texto_resposta:
+        resultado['sucesso'] = True
+        resultado['indicadores'].append('payload_refletido')
+
+    # Verifica mudanças de comportamento que indicam sucesso
+    if 'error' in texto_resposta or 'exception' in texto_resposta:
+        resultado['sucesso'] = True
+        resultado['indicadores'].append('error_message')
+
+    # Para SQLi, verifica se novos dados apareceram na resposta
+    if tipo_payload == 'sqli' and ('or 1=1' in payload.lower() or 'union select' in payload.lower()):
+        # Verifica se a resposta parece conter mais resultados que o normal
+        if len(texto_resposta) > 5000:  # Assumindo que respostas maiores indicam mais resultados
+            resultado['sucesso'] = True
+            resultado['indicadores'].append('possivel_data_dump')
+
+    return resultado
+
+
+def testar_payload(url, param_name, tipo_payload, payload, config, session=None):
     """Testa um único payload em uma URL específica"""
     parsed_url, parametros = extrair_parametros(url)
 
@@ -105,13 +153,20 @@ def testar_payload(url, param_name, tipo_payload, payload, config):
     # Adiciona um pequeno atraso para evitar sobrecarga no servidor alvo
     time.sleep(config['delay_between_requests'])
 
+    # Usa a sessão fornecida ou cria uma nova
+    if session is None:
+        session = requests.Session()
+
     try:
         # Fazendo a requisição GET com timeout configurável
-        resposta = requests.get(
+        resposta = session.get(
             url_teste, 
             timeout=config['timeout'], 
             headers=config['headers']
         )
+
+        # Analisar a resposta para detectar sucesso na exploração
+        analise = analisar_resposta(resposta, payload, tipo_payload)
 
         # Salvando os resultados em um dicionário
         resultado = {
@@ -123,11 +178,17 @@ def testar_payload(url, param_name, tipo_payload, payload, config):
             'status_code': resposta.status_code,
             'tamanho_resposta': len(resposta.text),
             'tempo_resposta': resposta.elapsed.total_seconds(),
+            'sucesso_exploracao': analise['sucesso'],
+            'indicadores': ','.join(analise['indicadores']),
             'timestamp': datetime.now().isoformat(),
             'html_resposta': resposta.text[:5000]  # Limita o tamanho para evitar arquivos muito grandes
         }
 
-        logger.info(f"Payload testado: {payload} | Status: {resposta.status_code} | Tempo: {resultado['tempo_resposta']:.2f}s")
+        if analise['sucesso']:
+            logger.info(f"[SUCESSO] Payload {payload} causou efeito em {url}")
+        else:
+            logger.info(f"Payload testado: {payload} | Status: {resposta.status_code} | Tempo: {resultado['tempo_resposta']:.2f}s")
+
         return resultado
 
     except Timeout:
@@ -167,6 +228,65 @@ def testar_payload(url, param_name, tipo_payload, payload, config):
             'timestamp': datetime.now().isoformat(),
         }
 
+def iniciar_sessao(config):
+    """Cria uma sessão autenticada para testes"""
+    session = requests.Session()
+
+    # Verifica se há configuração de autenticação
+    if 'auth' not in config:
+        logger.info("Sem configuração de autenticação. Usando sessão sem autenticação.")
+        return session
+
+    auth_config = config['auth']
+    logger.info(f"Iniciando autenticação para {auth_config.get('type', 'desconhecido')}")
+
+    # Exemplo para DVWA
+    if auth_config.get('type') == 'dvwa':
+        try:
+            # Fazer login
+            login_url = auth_config['login_url']
+            credentials = {
+                'username': auth_config['username'],
+                'password': auth_config['password'],
+                'Login': 'Login'
+            }
+
+            logger.info(f"Tentando login em {login_url}")
+            resposta = session.post(login_url, data=credentials, timeout=10)
+
+            if resposta.status_code == 200 and 'login failed' not in resposta.text.lower():
+                logger.info("Login bem-sucedido!")
+            else:
+                logger.error("Falha no login. Verifique as credenciais.")
+                return session
+
+            # Configurar nível de segurança baixo
+            if 'security_url' in auth_config:
+                security_data = {'security': 'low', 'seclev_submit': 'Submit'}
+                security_url = auth_config['security_url']
+                logger.info(f"Configurando nível de segurança baixo em {security_url}")
+                session.post(security_url, data=security_data)
+
+        except Exception as e:
+            logger.error(f"Erro durante autenticação: {str(e)}")
+
+    # Exemplo para WebGoat
+    elif auth_config.get('type') == 'webgoat':
+        try:
+            login_url = auth_config['login_url']
+            credentials = {
+                'username': auth_config['username'],
+                'password': auth_config['password']
+            }
+
+            logger.info(f"Tentando login em WebGoat: {login_url}")
+            session.post(login_url, json=credentials)
+
+        except Exception as e:
+            logger.error(f"Erro durante autenticação WebGoat: {str(e)}")
+
+    return session
+
 def detectar_parametros(url):
     """Detecta automaticamente os parâmetros em uma URL"""
     _, parametros = extrair_parametros(url)
@@ -184,9 +304,22 @@ def coletar_dados():
 
     logger.info(f"Iniciando coleta com {len(config['urls_alvo'])} URLs e {sum(len(payloads) for payloads in config['payloads'].values())} payloads")
 
+    # Iniciar sessão com autenticação se configurada
+    session = iniciar_sessao(config)
+
     # Lista para armazenar os resultados das requisições
     resultados = []
     tarefas = []
+
+    # Teste de conectividade básico antes de começar
+    logger.info("Realizando teste de conectividade...")
+    for url in config['urls_alvo'][:1]:  # Testa apenas a primeira URL
+        try:
+            resposta = session.get(url, timeout=config['timeout'])
+            logger.info(f"Conectividade OK: {url} respondeu com status {resposta.status_code}")
+        except Exception as e:
+            logger.warning(f"Problema de conectividade com {url}: {str(e)}")
+            logger.warning("Continuando mesmo com problemas de conectividade. Verifique se o servidor alvo está acessível.")
 
     # Prepara as tarefas para execução
     for url in config['urls_alvo']:
@@ -203,11 +336,13 @@ def coletar_dados():
                     # Adiciona a tarefa à lista
                     tarefas.append((url, param_name, tipo_payload, payload))
 
+    logger.info(f"Total de {len(tarefas)} testes a serem realizados")
+
     # Executa as tarefas em paralelo com controle de concorrência
     with ThreadPoolExecutor(max_workers=config['max_workers']) as executor:
         futuros = []
         for url, param, tipo, payload in tarefas:
-            future = executor.submit(testar_payload, url, param, tipo, payload, config)
+            future = executor.submit(testar_payload, url, param, tipo, payload, config, session)
             futuros.append(future)
 
         # Processa os resultados à medida que ficam prontos
@@ -217,6 +352,10 @@ def coletar_dados():
                 resultados.append(resultado)
 
     # Convertendo a lista de resultados em um DataFrame do pandas
+    if not resultados:
+        logger.warning("Nenhum resultado obtido! Verifique a conectividade com o alvo.")
+        return pd.DataFrame()
+
     df_resultados = pd.DataFrame(resultados)
 
     # Criando diretório para resultados se não existir
@@ -233,6 +372,14 @@ def coletar_dados():
     if colunas_resumo:
         resumo_file = output_file.replace('.csv', '_resumo.csv')
         df_resultados[colunas_resumo].to_csv(resumo_file, index=False)
+
+    # Filtrar resultados bem-sucedidos para análise rápida
+    if 'sucesso_exploracao' in df_resultados.columns:
+        sucessos = df_resultados[df_resultados['sucesso_exploracao'] == True]
+        if not sucessos.empty:
+            sucesso_file = output_file.replace('.csv', '_sucessos.csv')
+            sucessos[colunas_resumo].to_csv(sucesso_file, index=False)
+            logger.info(f"Encontrados {len(sucessos)} payloads com sucesso! Detalhes em '{sucesso_file}'")
 
     logger.info(f"Coleta concluída. {len(resultados)} testes realizados.")
     logger.info(f"Dados completos salvos em '{output_file}'")

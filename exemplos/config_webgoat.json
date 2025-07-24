@@ -1,0 +1,34 @@
+{
+    "urls_alvo": [
+        "http://localhost:8080/WebGoat/attack?Screen=900&menu=900",
+        "http://localhost:8080/WebGoat/start.mvc#lesson/SqlInjection.lesson",
+        "http://localhost:8080/WebGoat/start.mvc#lesson/CrossSiteScripting.lesson"
+    ],
+    "payloads": {
+        "sqli": [
+            "' or 1=1--",
+            "1' AND '1'='1",
+            "1' UNION SELECT 1,2,3--",
+            "admin' --"
+        ],
+        "xss": [
+            "<script>alert(1)</script>",
+            "<img src=x onerror=alert(2)>",
+            "javascript:alert(document.cookie)"
+        ]
+    },
+    "auth": {
+        "type": "webgoat",
+        "login_url": "http://localhost:8080/WebGoat/login",
+        "username": "guest",
+        "password": "guest"
+    },
+    "headers": {
+        "User-Agent": "PenteIA-DataCollector/2.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    },
+    "max_workers": 3,
+    "timeout": 10,
+    "output_file": "webgoat_data.csv",
+    "delay_between_requests": 1.0
+}
